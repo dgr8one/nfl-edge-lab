@@ -132,4 +132,96 @@ const e=evaluate([{event,board:{bookmakers:bks}}]);const alt=e.rows.find(r=>r.pl
 const tests=[['Only Over bets',e.rows.every(r=>r.side==='Over')],['Main paired market is 50% no-vig',Math.abs(main.p-.5)<1e-9],['Safer alternate recognized',alt.classification==='alt'],['One-sided prices are NOT assigned ROI',alt.ev===null&&alt.p===null],['One-sided price gap is positive',alt.advantage>0&&alt.sameRef.length===2],['Two-sided alternate yields fair ROI',fair.tier==='two-fair'&&fair.ev!==null],['No mixing standard and alternate pairing',e.pairs===7]];
 for(const [name,ok] of tests)msg((ok?'PASS ':'FAIL ')+name);msg(tests.filter(t=>t[1]).length+'/'+tests.length+' offline tests passed. No API calls.');return tests.every(t=>t[1])}
 $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').onclick=()=>scan(false);$('scanAll').onclick=()=>scan(true);$('saveOdds').onclick=saveOdds;$('importOdds').onchange=e=>importOdds(e.target.files[0]);$('export').onclick=exportCsv;$('test').onclick=selfTest;for(const id of ['market','minAdv','mode','sort','requireBoth','freshOnly','showDisagree'])$(id).addEventListener('change',render);render();
-</script></body></html>
+</script>
+<script src="./js/nfl-projections.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <h2>NFL Player Projections — Test</h2>
+    <p id="projectionStatus">Loading projections...</p>
+    <div id="projectionExamples"></div>
+    <p class="muted">
+      Experimental historical-statistics baseline.
+      Not validated betting probabilities.
+    </p>
+  `;
+
+  document.querySelector("main").appendChild(panel);
+
+  const status = document.getElementById("projectionStatus");
+  const examples = document.getElementById("projectionExamples");
+
+  try {
+    const response = await fetch(
+      "./data/player_stats.json",
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+      throw new Error("Player data HTTP " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!window.NFLEdgeProjections) {
+      throw new Error("Projection script did not load");
+    }
+
+    const projections =
+      window.NFLEdgeProjections.buildProjections(data.players);
+
+    const valid = projections
+      .filter(p => p.projected_yards > 0)
+      .sort((a, b) => b.projected_yards - a.projected_yards);
+
+    status.textContent =
+      "Projection engine connected: " +
+      projections.length +
+      " player-market projections calculated.";
+
+    const table = document.createElement("table");
+    table.style.minWidth = "650px";
+
+    const header = document.createElement("tr");
+
+    for (const heading of [
+      "Player", "Market", "Games", "Projected yards"
+    ]) {
+      const th = document.createElement("th");
+      th.textContent = heading;
+      header.appendChild(th);
+    }
+
+    table.appendChild(header);
+
+    for (const p of valid.slice(0, 10)) {
+      const tr = document.createElement("tr");
+
+      for (const value of [
+        p.player_name,
+        p.market,
+        p.games_played,
+        p.projected_yards.toFixed(1)
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      }
+
+      table.appendChild(tr);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tablewrap";
+    wrapper.appendChild(table);
+    examples.appendChild(wrapper);
+
+  } catch (error) {
+    status.textContent =
+      "Projection error: " + error.message;
+  }
+})();
+</script>
+</body></html>
