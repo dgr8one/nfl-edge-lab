@@ -664,4 +664,120 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
   }
 })();
 </script>
+
+<script src="./js/nfl-simulations.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.innerHTML = `
+    <h2>NFL Monte Carlo Simulations — Test</h2>
+    <p id="simStatus">Running simulations...</p>
+    <div id="simResults"></div>
+    <p class="muted">
+      Test lines are illustrative, not live sportsbook odds.
+      Simulation uncertainty is not yet calibrated.
+    </p>
+  `;
+
+  const main = document.querySelector("main");
+  if (!main) return;
+  main.appendChild(panel);
+
+  const status = document.getElementById("simStatus");
+
+  try {
+    const [statsResponse, scheduleResponse] = await Promise.all([
+      fetch("./data/player_stats.json", { cache: "no-store" }),
+      fetch("./data/nfl_schedule.json", { cache: "no-store" })
+    ]);
+
+    if (!statsResponse.ok || !scheduleResponse.ok) {
+      throw new Error("NFL data could not be loaded");
+    }
+
+    const stats = await statsResponse.json();
+    const schedule = await scheduleResponse.json();
+
+    const projections =
+      window.NFLEdgeCombined.buildCombinedProjections(
+        stats.players, schedule
+      ).filter(p => p.matchup_available);
+
+    // Illustrative test lines only.
+    const testLines = [
+      { name: "Jaxon Smith-Njigba", market: "receiving", line: 99.5 },
+      { name: "Jahmyr Gibbs", market: "rushing", line: 79.5 },
+      { name: "James Cook", market: "rushing", line: 79.5 },
+      { name: "Puka Nacua", market: "receiving", line: 79.5 },
+      { name: "Zay Flowers", market: "receiving", line: 79.5 }
+    ];
+
+    const results = [];
+
+    for (const test of testLines) {
+      const projection = projections.find(p =>
+        p.player_name === test.name &&
+        p.market === test.market
+      );
+
+      if (!projection) continue;
+
+      const result = window.NFLEdgeSimulations.simulateOver(
+        projection,
+        test.line,
+        50000
+      );
+
+      if (result) results.push(result);
+    }
+
+    status.textContent =
+      results.length + " player markets simulated · " +
+      "50,000 simulations per market.";
+
+    const table = document.createElement("table");
+    const headings = [
+      "Player", "Market", "Test Line",
+      "Projected Yds", "Over Probability"
+    ];
+
+    const header = document.createElement("tr");
+
+    for (const heading of headings) {
+      const th = document.createElement("th");
+      th.textContent = heading;
+      header.appendChild(th);
+    }
+    table.appendChild(header);
+
+    for (const result of results) {
+      const row = document.createElement("tr");
+
+      for (const value of [
+        result.player_name,
+        result.market,
+        result.line.toFixed(1),
+        result.projected_yards.toFixed(1),
+        (result.over_probability * 100).toFixed(1) + "%"
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        row.appendChild(td);
+      }
+
+      table.appendChild(row);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.overflowX = "auto";
+    wrapper.appendChild(table);
+    document.getElementById("simResults").appendChild(wrapper);
+
+  } catch (error) {
+    status.textContent = "Simulation error: " + error.message;
+    console.error(error);
+  }
+})();
+</script>
 </body></html>
