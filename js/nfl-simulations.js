@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  function normalRandom() {
+  function randomNormal() {
     const u = Math.max(Math.random(), 1e-12);
     const v = Math.random();
 
@@ -10,135 +10,157 @@
       Math.cos(2 * Math.PI * v);
   }
 
-  function sampleStandardDeviation(values) {
-    if (values.length < 2) return null;
+  function gamma(shape) {
+    if (shape < 1) {
+      return gamma(shape + 1) *
+        Math.pow(
+          Math.max(Math.random(), 1e-12),
+          1 / shape
+        );
+    }
 
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const d = shape - 1 / 3;
+    const c = 1 / Math.sqrt(9 * d);
 
-    const variance = values.reduce(
-      (sum, value) => sum + Math.pow(value - mean, 2),
-      0
-    ) / (values.length - 1);
+    for (;;) {
+      const x = randomNormal();
+      const v = 1 + c * x;
 
-    return Math.sqrt(variance);
+      if (v <= 0) continue;
+
+      const cube = v * v * v;
+      const u = Math.random();
+
+      if (
+        u < 1 - 0.0331 * x * x * x * x ||
+        Math.log(u) <
+          0.5 * x * x +
+          d * (1 - cube + Math.log(cube))
+      ) {
+        return d * cube;
+      }
+    }
   }
 
-  function estimateStandardDeviation(projection, mean) {
-    const market = projection.market;
+  function sampleSD(a) {
+    if (a.length < 2) return null;
 
-    // Fallback only; these assumptions still require backtesting.
-    const variation = market === "rushing" ? 0.42 : 0.48;
-    const fallbackSD = Math.max(8, mean * variation);
+    const mean =
+      a.reduce((s, x) => s + x, 0) / a.length;
 
-    const history = Array.isArray(projection.weekly_yards)
-      ? projection.weekly_yards
+    return Math.sqrt(
+      a.reduce(
+        (s, x) => s + (x - mean) ** 2,
+        0
+      ) / (a.length - 1)
+    );
+  }
+
+  function uncertainty(p, mean) {
+    const hist = Array.isArray(p.weekly_yards)
+      ? p.weekly_yards
           .map(Number)
-          .filter(v => Number.isFinite(v) && v >= 0)
+          .filter(x => Number.isFinite(x) && x >= 0)
       : [];
 
-    if (history.length < 3) {
-      return {
-        sd: fallbackSD,
-        source: "fallback",
-        games: history.length
-      };
-    }
+    const fallback = Math.max(
+      10,
+      mean * (p.market === "rushing" ? 0.55 : 0.65)
+    );
 
-    const historicalSD = sampleStandardDeviation(history);
+    const sd = sampleSD(hist);
 
-    if (!Number.isFinite(historicalSD)) {
-      return {
-        sd: fallbackSD,
-        source: "fallback",
-        games: history.length
-      };
-    }
+    const w = hist.length >= 3
+      ? hist.length / (hist.length + 12)
+      : 0;
 
-    // Shrink small samples toward the fallback.
-    // This is a provisional heuristic, not a calibrated parameter.
-    const weight = history.length / (history.length + 8);
-
-    const blendedVariance =
-      weight * historicalSD * historicalSD +
-      (1 - weight) * fallbackSD * fallbackSD;
+    const blended = Math.sqrt(
+      w * (sd || 0) ** 2 +
+      (1 - w) * fallback ** 2
+    );
 
     return {
-      sd: Math.max(5, Math.sqrt(blendedVariance)),
-      source: "historical_blend",
-      games: history.length
+      sd: Math.max(8, blended),
+      games: hist.length,
+      source: w ? "historical_blend" : "fallback"
     };
   }
 
-  function simulateOver(projection, line, simulations = 50000) {
-    const mean = Number(projection.adjusted_yards);
+  function simulateOver(
+    p,
+    line,
+    simulations = 50000
+  ) {
+    const mean = Number(p.adjusted_yards);
     const threshold = Number(line);
-    const market = projection.market;
 
     if (
       !Number.isFinite(mean) ||
-      !Number.isFinite(threshold) ||
       mean <= 0 ||
+      !Number.isFinite(threshold) ||
       !Number.isInteger(simulations) ||
-      simulations <= 0
+      simulations < 1
     ) {
       return null;
     }
 
-    const uncertainty = estimateStandardDeviation(projection, mean);
-    const standardDeviation = uncertainty.sd;
+    const u = uncertainty(p, mean);
+
+    // Nonnegative, right-skewed distribution.
+    // Parameters are heuristic, not backtested.
+
+    const shape = Math.max(
+      0.3,
+      (mean / u.sd) ** 2
+    );
+
+    const scale = mean / shape;
 
     let wins = 0;
 
     for (let i = 0; i < simulations; i++) {
-      const yards = Math.max(
-        0,
-        mean + normalRandom() * standardDeviation
-      );
+      const yards = gamma(shape) * scale;
 
       if (yards > threshold) wins++;
     }
 
     return {
-      player_name: projection.player_name,
-      market,
+      player_name: p.player_name,
+      market: p.market,
       line: threshold,
       projected_yards: mean,
-      standard_deviation: standardDeviation,
-      variance_source: uncertainty.source,
-      historical_games: uncertainty.games,
+      standard_deviation: u.sd,
+      variance_source: u.source,
+      historical_games: u.games,
+      distribution: "gamma_heuristic",
       simulations,
       over_probability: wins / simulations
     };
   }
 
-  function americanToDecimal(odds) {
-    const value = Number(odds);
-
-    if (!Number.isFinite(value) || value === 0) return null;
-
-    return value > 0
-      ? 1 + value / 100
-      : 1 + 100 / Math.abs(value);
-  }
-
-  function expectedROI(probability, americanOdds) {
-    const decimal = americanToDecimal(americanOdds);
+  function expectedROI(prob, odds) {
+    const o = Number(odds);
 
     if (
-      decimal === null ||
-      !Number.isFinite(probability) ||
-      probability < 0 ||
-      probability > 1
+      !Number.isFinite(prob) ||
+      prob < 0 ||
+      prob > 1 ||
+      !Number.isFinite(o) ||
+      o === 0
     ) {
       return null;
     }
 
-    return probability * decimal - 1;
+    const decimal = o > 0
+      ? 1 + o / 100
+      : 1 + 100 / Math.abs(o);
+
+    return prob * decimal - 1;
   }
 
   window.NFLEdgeSimulations = {
     simulateOver,
     expectedROI,
-    version: "1.1"
+    version: "2.0"
   };
 })();
