@@ -224,4 +224,145 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
   }
 })();
 </script>
+
+<script src="./js/nfl-matchups.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>NFL Defensive Matchups — Test</h2>
+    <p id="matchupStatus">Loading matchup data...</p>
+    <div id="matchupResults"></div>
+    <p class="muted">
+      Historical team-level defense and workload trends.
+      Not yet applied to betting recommendations.
+    </p>
+  `;
+
+  const main = document.querySelector("main");
+
+  if (!main) {
+    console.error("NFL matchup panel: main element missing");
+    return;
+  }
+
+  main.appendChild(panel);
+
+  const status = document.getElementById("matchupStatus");
+  const results = document.getElementById("matchupResults");
+
+  try {
+    const response = await fetch(
+      "./data/player_stats.json",
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+      throw new Error("Statistics HTTP " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!window.NFLEdgeMatchups) {
+      throw new Error("Matchup engine did not load");
+    }
+
+    if (!window.NFLEdgeProjections) {
+      throw new Error("Projection engine did not load");
+    }
+
+    const ratings =
+      window.NFLEdgeMatchups.buildDefenseRatings(data.players);
+
+    const projections =
+      window.NFLEdgeProjections.buildProjections(data.players);
+
+    const teams = Object.keys(ratings);
+
+    status.textContent =
+      "Matchup engine connected: " +
+      teams.length +
+      " defenses analyzed; " +
+      projections.length +
+      " player-market projections available.";
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Sample defensive ratings";
+    results.appendChild(heading);
+
+    const table = document.createElement("table");
+    table.style.minWidth = "600px";
+
+    const headers = [
+      "Defense",
+      "Rushing yards allowed",
+      "Receiving yards allowed",
+      "Rush factor",
+      "Receive factor"
+    ];
+
+    const headerRow = document.createElement("tr");
+
+    for (const label of headers) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headerRow.appendChild(th);
+    }
+
+    table.appendChild(headerRow);
+
+    for (const team of teams.sort().slice(0, 12)) {
+      const rush = ratings[team].rushing;
+      const receive = ratings[team].receiving;
+
+      const tr = document.createElement("tr");
+
+      for (const value of [
+        team,
+        rush.yards_allowed_per_game.toFixed(1),
+        receive.yards_allowed_per_game.toFixed(1),
+        rush.factor.toFixed(3),
+        receive.factor.toFixed(3)
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      }
+
+      table.appendChild(tr);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tablewrap";
+    wrapper.appendChild(table);
+    results.appendChild(wrapper);
+
+    const sample = projections.find(
+      p => p.market === "receiving" &&
+           p.games_played >= 5 &&
+           p.projected_yards >= 40
+    );
+
+    if (sample) {
+      const trend =
+        window.NFLEdgeMatchups.usageTrend(sample);
+
+      const note = document.createElement("p");
+      note.textContent =
+        "Usage example: " + sample.player_name +
+        " — recent targets trend: " +
+        trend.usage_direction;
+
+      results.appendChild(note);
+    }
+
+  } catch (error) {
+    status.textContent =
+      "Matchup error: " + error.message;
+    console.error(error);
+  }
+})();
+</script>
 </body></html>
