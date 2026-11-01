@@ -487,4 +487,92 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
   }
 })();
 </script>
+
+<script src="./js/nfl-usage.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>NFL Projected Usage — Test</h2>
+    <p id="usageStatus">Calculating player usage...</p>
+    <div id="usageResults"></div>
+  `;
+
+  const main = document.querySelector("main");
+  if (!main) return;
+  main.appendChild(panel);
+
+  try {
+    const response = await fetch(
+      "./data/player_stats.json",
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) throw new Error("Player data unavailable");
+
+    const data = await response.json();
+    const projections = window.NFLEdgeUsage
+      .buildUsage(data.players);
+
+    const eligible = projections
+      .filter(p =>
+        p.games_played >= 4 &&
+        (p.projected_carries >= 5 || p.projected_targets >= 3)
+      )
+      .sort((a, b) =>
+        (b.projected_rushing_yards + b.projected_receiving_yards) -
+        (a.projected_rushing_yards + a.projected_receiving_yards)
+      );
+
+    document.getElementById("usageStatus").textContent =
+      eligible.length + " players with projected usage.";
+
+    const table = document.createElement("table");
+
+    const columns = [
+      ["Player", p => p.player_name],
+      ["Team", p => p.team],
+      ["Carries", p => p.projected_carries.toFixed(1)],
+      ["Targets", p => p.projected_targets.toFixed(1)],
+      ["Rush Yds", p => p.projected_rushing_yards.toFixed(1)],
+      ["Rec Yds", p => p.projected_receiving_yards.toFixed(1)]
+    ];
+
+    const header = document.createElement("tr");
+
+    for (const [name] of columns) {
+      const th = document.createElement("th");
+      th.textContent = name;
+      header.appendChild(th);
+    }
+
+    table.appendChild(header);
+
+    for (const player of eligible.slice(0, 20)) {
+      const row = document.createElement("tr");
+
+      for (const [, getValue] of columns) {
+        const td = document.createElement("td");
+        td.textContent = getValue(player);
+        row.appendChild(td);
+      }
+
+      table.appendChild(row);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.overflowX = "auto";
+    wrapper.appendChild(table);
+
+    document.getElementById("usageResults").appendChild(wrapper);
+
+  } catch (error) {
+    document.getElementById("usageStatus").textContent =
+      "Usage error: " + error.message;
+    console.error(error);
+  }
+})();
+</script>
 </body></html>
