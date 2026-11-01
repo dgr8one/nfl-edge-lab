@@ -122,6 +122,20 @@ for(const arr of group(soft,q=>[id(q),q.line,q.alt].join('|')).values()){
  const disagreement=fairRefs.length===2&&Math.abs(fairRefs[0].p-fairRefs[1].p)>.05;
  const p=fairRefs.length&&!disagreement?fairRefs.reduce((s,r)=>s+r.p,0)/fairRefs.length:null;
  const ev=p==null?null:roi(p,best.price);
+  const sharp = pinnacleAt(best, pairs);
+
+const sharpP = sharp
+  ? sharp.probability
+  : null;
+
+const sharpEv = sharpROI(
+  sharpP,
+  best.price
+);
+
+const sharpGap = sharpP != null && p != null
+  ? sharpP - p
+  : null;
  const advantage=sameRef.length?Math.min(...sameRef.map(r=>implied(r.price)))-implied(best.price):null;
  const age=best.updated&&Number.isFinite(Date.parse(best.updated))?Math.round((Date.now()-Date.parse(best.updated))/60000):null;
  const tier=p!=null&&fairRefs.length===2?'two-fair':p!=null?'one-fair':sameRef.length===2?'two-price':sameRef.length===1?'one-price':disagreement?'disputed':'missing';
