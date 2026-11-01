@@ -2,98 +2,133 @@
 (function () {
   "use strict";
 
-  function average(values) {
-    if (!values.length) return 0;
-    return values.reduce((a, b) => a + b, 0) / values.length;
-  }
+  const n = v => v === null || v === undefined || v === ""
+    ? NaN : Number(v);
 
-  function weightedAverage(values) {
-    if (!values.length) return 0;
+  const avg = a => a.length
+    ? a.reduce((s, v) => s + v, 0) / a.length : 0;
 
-    const season = average(values);
-    const last5 = average(values.slice(-5));
-    const last3 = average(values.slice(-3));
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
-    return 0.40 * season + 0.25 * last5 + 0.35 * last3;
+  const team = x => ({
+    JAX: "JAC", LA: "LAR", WSH: "WAS"
+  }[String(x || "").toUpperCase()] ||
+    String(x || "").toUpperCase());
+
+  const valid = r =>
+    Number(r.season) === 2026 &&
+    String(r.season_type || "").toUpperCase() === "REG" &&
+    Number.isInteger(Number(r.week)) &&
+    Number(r.week) > 0;
+
+  function weighted(a) {
+    return 0.40 * avg(a) +
+      0.25 * avg(a.slice(-5)) +
+      0.35 * avg(a.slice(-3));
   }
 
   function buildUsage(records) {
-    const players = new Map();
+    const groups = new Map();
 
-    for (const row of records) {
-      if (!row.player_id || !row.week) continue;
+    for (const r of records || []) {
+      if (!valid(r) || !r.player_id) continue;
 
-      const key = row.player_id;
+      const id = String(r.player_id);
+      if (!groups.has(id)) groups.set(id, new Map());
 
-      if (!players.has(key)) {
-        players.set(key, []);
-      }
+      const weeks = groups.get(id);
+      const week = Number(r.week);
 
-      players.get(key).push(row);
+      if (!weeks.has(week)) weeks.set(week, r);
     }
 
-    const output = [];
+    const out = [];
 
-    for (const [playerId, games] of players) {
-      games.sort((a, b) => Number(a.week) - Number(b.week));
+    for (const [id, weeks] of groups) {
+      const games = [...weeks.values()].sort(
+        (a, b) => Number(a.week) - Number(b.week)
+      );
 
       if (games.length < 3) continue;
 
-      const latest = games[games.length - 1];
+      const last = games[games.length - 1];
 
-      const carries = games.map(g => Number(g.carries) || 0);
-      const targets = games.map(g => Number(g.targets) || 0);
-      const rushYards = games.map(g => Number(g.rushing_yards) || 0);
-      const receivingYards = games.map(g => Number(g.receiving_yards) || 0);
-      const receptions = games.map(g => Number(g.receptions) || 0);
+      const arr = f => games.map(g => {
+        const x = n(g[f]);
+        return Number.isFinite(x) ? Math.max(0, x) : 0;
+      });
 
-      const projectedCarries = weightedAverage(carries);
-      const projectedTargets = weightedAverage(targets);
+      const carries = arr("carries");
+      const targets = arr("targets");
+      const rush = arr("rushing_yards");
+      const rec = arr("receiving_yards");
+      const catches = arr("receptions");
 
-      const totalCarries = carries.reduce((a, b) => a + b, 0);
-      const totalTargets = targets.reduce((a, b) => a + b, 0);
+      const sum = a => a.reduce((s, v) => s + v, 0);
 
-      const yardsPerCarry = totalCarries
-        ? rushYards.reduce((a, b) => a + b, 0) / totalCarries
-        : 0;
+      const pc = weighted(carries);
+      const pt = weighted(targets);
 
-      const catchRate = totalTargets
-        ? receptions.reduce((a, b) => a + b, 0) / totalTargets
-        : 0;
+      const totalC = sum(carries);
+      const totalT = sum(targets);
+      const totalR = sum(catches);
 
-      const totalReceptions = receptions.reduce((a, b) => a + b, 0);
+      const ypc = totalC ? sum(rush) / totalC : 0;
+      const ypt = totalT ? sum(rec) / totalT : 0;
 
-      const yardsPerReception = totalReceptions
-        ? receivingYards.reduce((a, b) => a + b, 0) / totalReceptions
-        : 0;
+      const catchRate = totalT
+        ? clamp(totalR / totalT, 0, 1) : 0;
 
-      output.push({
-        player_id: playerId,
-        player_name: latest.player_display_name || latest.player_name,
-        team: latest.recent_team || latest.team,
-        position: latest.position,
+      const ypr = totalR ? sum(rec) / totalR : 0;
+
+      const rushPrior = totalC
+        ? avg(rush) / Math.max(avg(carries), 1) : 0;
+
+      const recPrior = totalT
+        ? avg(rec) / Math.max(avg(targets), 1) : 0;
+
+      const rushEff = clamp(
+        (totalC * ypc + 20 * rushPrior) / (totalC + 20),
+        0, 12
+      );
+
+      const recEff = clamp(
+        (totalT * ypt + 25 * recPrior) / (totalT + 25),
+        0, 20
+      );
+
+      out.push({
+        player_id: id,
+        player_name:
+          last.player_display_name || last.player_name,
+        team: team(last.recent_team || last.team),
+        position: last.position,
         games_played: games.length,
 
-        projected_carries: projectedCarries,
-        projected_targets: projectedTargets,
+        projected_carries: pc,
+        projected_targets: pt,
 
-        yards_per_carry: yardsPerCarry,
+        yards_per_carry: rushEff,
         catch_rate: catchRate,
-        yards_per_reception: yardsPerReception,
+        yards_per_reception: ypr,
+        yards_per_target: recEff,
 
-        projected_rushing_yards:
-          projectedCarries * yardsPerCarry,
+        projected_rushing_yards: pc * rushEff,
+        projected_receiving_yards: pt * recEff,
 
-        projected_receiving_yards:
-          projectedTargets * catchRate * yardsPerReception
+        season_usage_average: avg(carries),
+        recent_usage_average: avg(carries.slice(-3)),
+
+        projection_method:
+          "opportunity_x_shrunk_efficiency_v2"
       });
     }
 
-    return output;
+    return out;
   }
 
   window.NFLEdgeUsage = {
     buildUsage,
-    version: "1.0"
+    version: "2.0"
   };
 })();
