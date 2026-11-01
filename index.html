@@ -365,4 +365,126 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
   }
 })();
 </script>
+
+<script src="./js/nfl-upcoming.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>Upcoming NFL Matchup Projections — Test</h2>
+    <p id="upcomingStatus">Loading upcoming matchups...</p>
+    <div id="upcomingResults"></div>
+    <p class="muted">
+      Experimental matchup-adjusted projections.
+      Injuries and projected playing time not yet included.
+      Not validated for betting.
+    </p>
+  `;
+
+  const main = document.querySelector("main");
+  if (!main) {
+    console.error("Upcoming matchup panel: main missing");
+    return;
+  }
+
+  main.appendChild(panel);
+
+  const status = document.getElementById("upcomingStatus");
+  const results = document.getElementById("upcomingResults");
+
+  try {
+    const [statsResponse, scheduleResponse] = await Promise.all([
+      fetch("./data/player_stats.json", { cache: "no-store" }),
+      fetch("./data/nfl_schedule.json", { cache: "no-store" })
+    ]);
+
+    if (!statsResponse.ok || !scheduleResponse.ok) {
+      throw new Error("Unable to load statistics or schedule");
+    }
+
+    const stats = await statsResponse.json();
+    const schedule = await scheduleResponse.json();
+
+    if (!window.NFLEdgeProjections ||
+        !window.NFLEdgeMatchups ||
+        !window.NFLEdgeUpcoming) {
+      throw new Error("One or more model scripts missing");
+    }
+
+    const projections =
+      window.NFLEdgeProjections.buildProjections(stats.players);
+
+    const ratings =
+      window.NFLEdgeMatchups.buildDefenseRatings(stats.players);
+
+    const adjusted =
+      window.NFLEdgeUpcoming.matchupProjections(
+        projections, schedule, ratings
+      );
+
+    const eligible = adjusted
+      .filter(p =>
+        p.games_played >= 4 &&
+        p.projected_yards >= 15 &&
+        p.matchup_available
+      )
+      .sort((a, b) => b.adjusted_yards - a.adjusted_yards);
+
+    status.textContent =
+      "Upcoming matchups connected: " +
+      eligible.length +
+      " eligible player-market projections.";
+
+    const table = document.createElement("table");
+    table.style.minWidth = "780px";
+
+    const headings = [
+      "Player", "Team", "Opponent", "Market",
+      "Base yards", "Matchup factor", "Adjusted yards"
+    ];
+
+    const header = document.createElement("tr");
+
+    for (const heading of headings) {
+      const th = document.createElement("th");
+      th.textContent = heading;
+      header.appendChild(th);
+    }
+
+    table.appendChild(header);
+
+    for (const p of eligible.slice(0, 20)) {
+      const tr = document.createElement("tr");
+
+      for (const value of [
+        p.player_name,
+        p.team,
+        p.opponent,
+        p.market,
+        p.projected_yards.toFixed(1),
+        p.matchup_factor.toFixed(3),
+        p.adjusted_yards.toFixed(1)
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      }
+
+      table.appendChild(tr);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tablewrap";
+    wrapper.appendChild(table);
+    results.appendChild(wrapper);
+
+  } catch (error) {
+    status.textContent =
+      "Upcoming matchup error: " + error.message;
+    console.error(error);
+  }
+})();
+</script>
 </body></html>
