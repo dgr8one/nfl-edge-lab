@@ -615,6 +615,7 @@ const projections =
   );
 
 window.nflCombinedProjections = projections;
+window.dispatchEvent(new Event("nfl-projections-updated"));
 
 const eligible = projections
       .filter(p => p.matchup_available)
