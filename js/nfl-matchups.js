@@ -1,111 +1,105 @@
 
-/*
- * NFL Edge Lab — Matchup and Usage Engine v1
- * Historical defensive adjustments.
- * No odds API calls.
- */
-
 (function () {
   "use strict";
 
-  const num = value => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
+  const num = x =>
+    Number.isFinite(Number(x)) ? Number(x) : 0;
 
-  const avg = values =>
-    values.length
-      ? values.reduce((a, b) => a + b, 0) / values.length
-      : 0;
+  const avg = a => a.length
+    ? a.reduce((s, x) => s + x, 0) / a.length : 0;
 
-  const clamp = (x, lo, hi) =>
-    Math.max(lo, Math.min(hi, x));
+  const clamp = (x, a, b) =>
+    Math.max(a, Math.min(b, x));
 
-  const normalizeTeam = team => {
-    const aliases = {
-      JAX: "JAC",
-      LA: "LAR",
-      STL: "LAR",
-      SD: "LAC",
-      OAK: "LV",
-      WSH: "WAS"
-    };
-
-    const key = String(team || "").toUpperCase();
-    return aliases[key] || key;
-  };
+  const normalizeTeam = x => ({
+    JAX: "JAC",
+    LA: "LAR",
+    STL: "LAR",
+    SD: "LAC",
+    OAK: "LV",
+    WSH: "WAS"
+  }[String(x || "").toUpperCase()] ||
+    String(x || "").toUpperCase());
 
   function buildDefenseRatings(records) {
     const games = new Map();
+    const seen = new Set();
 
-    for (const row of records) {
-      const opponent = normalizeTeam(row.opponent_team);
-      const offense = normalizeTeam(
-        row.recent_team || row.team
-      );
-      const week = num(row.week);
+    for (const r of records || []) {
+      if (
+        Number(r.season) !== 2026 ||
+        String(r.season_type || "").toUpperCase() !== "REG"
+      ) continue;
 
-      if (!opponent || !offense || !week) continue;
+      const opp = normalizeTeam(r.opponent_team);
+      const off = normalizeTeam(r.recent_team || r.team);
+      const week = Number(r.week);
 
-      const key = [week, opponent, offense].join("|");
+      if (
+        !opp || !off ||
+        !Number.isInteger(week) ||
+        week < 1 || !r.player_id
+      ) continue;
+
+      const dedup = String(r.player_id) + "|" + week;
+
+      if (seen.has(dedup)) continue;
+      seen.add(dedup);
+
+      const key = week + "|" + opp + "|" + off;
 
       if (!games.has(key)) {
         games.set(key, {
-          opponent,
+          opponent: opp,
           week,
           rushing: 0,
-          receiving: 0
+          receiving: 0,
+          players: 0
         });
       }
 
-      const game = games.get(key);
+      const g = games.get(key);
 
-      game.rushing += num(row.rushing_yards);
-      game.receiving += num(row.receiving_yards);
+      g.rushing += Math.max(0, num(r.rushing_yards));
+      g.receiving += Math.max(0, num(r.receiving_yards));
+      g.players++;
     }
 
-    const allGames = [...games.values()];
+    const all = [...games.values()];
 
     const league = {
-      rushing: avg(allGames.map(g => g.rushing)),
-      receiving: avg(allGames.map(g => g.receiving))
+      rushing: avg(all.map(x => x.rushing)),
+      receiving: avg(all.map(x => x.receiving))
     };
 
-    const defenses = {};
+    const grouped = {};
 
-    for (const game of allGames) {
-      if (!defenses[game.opponent]) {
-        defenses[game.opponent] = [];
-      }
-      defenses[game.opponent].push(game);
+    for (const g of all) {
+      (grouped[g.opponent] ??= []).push(g);
     }
 
     const ratings = {};
 
-    for (const [team, rows] of Object.entries(defenses)) {
-      ratings[team] = {};
+    for (const [t, rows] of Object.entries(grouped)) {
+      ratings[t] = {};
 
       for (const market of ["rushing", "receiving"]) {
-        const allowed = avg(rows.map(g => g[market]));
-        const leagueAverage = league[market];
+        const allowed = avg(rows.map(x => x[market]));
+        const weight = rows.length / (rows.length + 12);
 
-        // Shrink small samples toward league average.
-        const sampleWeight = rows.length / (rows.length + 8);
-
-        const rawFactor = leagueAverage > 0
-          ? allowed / leagueAverage
+        const factor = league[market] > 0
+          ? clamp(
+              1 + 0.5 * weight *
+                (allowed / league[market] - 1),
+              0.93,
+              1.07
+            )
           : 1;
 
-        const factor = clamp(
-          1 + sampleWeight * (rawFactor - 1),
-          0.85,
-          1.15
-        );
-
-        ratings[team][market] = {
+        ratings[t][market] = {
           games: rows.length,
           yards_allowed_per_game: allowed,
-          league_average: leagueAverage,
+          league_average: league[market],
           factor
         };
       }
@@ -114,35 +108,24 @@
     return ratings;
   }
 
-  function adjustProjection(projection, opponent, ratings) {
+  function adjustProjection(p, opponent, ratings) {
     const team = normalizeTeam(opponent);
-    const market = projection.market;
-    const defense = ratings[team]?.[market];
-
-    if (!defense) {
-      return {
-        ...projection,
-        opponent: team,
-        matchup_factor: 1,
-        matchup_available: false,
-        adjusted_yards: projection.projected_yards
-      };
-    }
+    const d = ratings?.[team]?.[p.market];
+    const factor = d?.factor ?? 1;
 
     return {
-      ...projection,
+      ...p,
       opponent: team,
-      matchup_factor: defense.factor,
-      matchup_available: true,
-      defensive_games: defense.games,
-      adjusted_yards:
-        projection.projected_yards * defense.factor
+      matchup_factor: factor,
+      matchup_available: !!d,
+      defensive_games: d?.games ?? 0,
+      adjusted_yards: p.projected_yards * factor
     };
   }
 
-  function usageTrend(projection) {
-    const season = num(projection.season_usage_average);
-    const recent = num(projection.recent_usage_average);
+  function usageTrend(p) {
+    const season = num(p.season_usage_average);
+    const recent = num(p.recent_usage_average);
 
     if (season <= 0) {
       return {
@@ -166,6 +149,6 @@
     buildDefenseRatings,
     adjustProjection,
     usageTrend,
-    version: "1.0"
+    version: "2.0"
   };
 })();
