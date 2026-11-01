@@ -15,6 +15,53 @@ SOURCE = (
 
 OUTPUT = Path("data/player_stats.json")
 
+SCHEDULE_SOURCE = (
+    "https://github.com/nflverse/nfldata/"
+    "raw/refs/heads/master/data/games.csv"
+)
+
+SCHEDULE_OUTPUT = Path("data/nfl_schedule.json")
+
+def update_schedule():
+    print("Downloading NFL schedule...")
+
+    request = urllib.request.Request(
+        SCHEDULE_SOURCE,
+        headers={"User-Agent": "NFL-Edge-Lab/1.0"}
+    )
+
+    with urllib.request.urlopen(request, timeout=90) as response:
+        content = response.read().decode("utf-8-sig")
+
+    reader = csv.DictReader(io.StringIO(content))
+    required = {
+        "season", "week", "home_team", "away_team"
+    }
+
+    if not reader.fieldnames or not required.issubset(reader.fieldnames):
+        raise RuntimeError("NFL schedule missing required columns")
+
+    games = [
+        row for row in reader
+        if row.get("season") == str(SEASON)
+    ]
+
+    if not games:
+        raise RuntimeError("No 2026 NFL games found")
+
+    SCHEDULE_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    SCHEDULE_OUTPUT.write_text(
+        json.dumps({
+            "season": SEASON,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "source": SCHEDULE_SOURCE,
+            "games": games
+        }, separators=(",", ":")),
+        encoding="utf-8"
+    )
+
+    print(f"Saved {len(games)} scheduled games.")
+
 FIELDS = [
     "player_id",
     "player_name",
@@ -94,3 +141,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    update_schedule()
