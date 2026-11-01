@@ -139,7 +139,10 @@ const sharpGap = sharpP != null && p != null
  const advantage=sameRef.length?Math.min(...sameRef.map(r=>implied(r.price)))-implied(best.price):null;
  const age=best.updated&&Number.isFinite(Date.parse(best.updated))?Math.round((Date.now()-Date.parse(best.updated))/60000):null;
  const tier=p!=null&&fairRefs.length===2?'two-fair':p!=null?'one-fair':sameRef.length===2?'two-price':sameRef.length===1?'one-price':disagreement?'disputed':'missing';
- out.push({...best,classification:best.alt?'alt':'main',baseline:base,offers:candidate.length,sameRef,fairRefs,disagreement,p,ev,advantage,age,tier,breakEven:implied(best.price)});
+ out.push({...best,sharp,
+sharpP,
+sharpEv,
+sharpGap,classification:best.alt?'alt':'main',baseline:base,offers:candidate.length,sameRef,fairRefs,disagreement,p,ev,advantage,age,tier,breakEven:implied(best.price)});
 }
 return {rows:out,quotes:all.length,books,pairCounts,pairs:pairs.length};}
 function download(name,content,type){const a=document.createElement('a');const u=URL.createObjectURL(new Blob([content],{type}));a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000)}
