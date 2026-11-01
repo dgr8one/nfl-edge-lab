@@ -609,12 +609,14 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
     const stats = await statsResponse.json();
     const schedule = await scheduleResponse.json();
 
-    const projections =
-      window.NFLEdgeCombined.buildCombinedProjections(
-        stats.players, schedule
-      );
+const projections =
+  window.NFLEdgeCombined.buildCombinedProjections(
+    stats.players, schedule
+  );
 
-    const eligible = projections
+window.nflCombinedProjections = projections;
+
+const eligible = projections
       .filter(p => p.matchup_available)
       .sort((a, b) => b.adjusted_yards - a.adjusted_yards);
 
