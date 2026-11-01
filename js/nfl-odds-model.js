@@ -83,6 +83,67 @@
       }
 
       const projection = candidates[0];
+
+      // Verify that the sportsbook offer belongs to
+      // the same matchup as the player projection.
+      const game = String(offer.game || "").toLowerCase();
+      const opponent = String(projection.opponent || "").toLowerCase();
+
+      const teamNames = {
+        ari: "arizona cardinals",
+        atl: "atlanta falcons",
+        bal: "baltimore ravens",
+        buf: "buffalo bills",
+        car: "carolina panthers",
+        chi: "chicago bears",
+        cin: "cincinnati bengals",
+        cle: "cleveland browns",
+        dal: "dallas cowboys",
+        den: "denver broncos",
+        det: "detroit lions",
+        gb: "green bay packers",
+        hou: "houston texans",
+        ind: "indianapolis colts",
+        jac: "jacksonville jaguars",
+        jax: "jacksonville jaguars",
+        kc: "kansas city chiefs",
+        la: "los angeles rams",
+        lar: "los angeles rams",
+        lac: "los angeles chargers",
+        lv: "las vegas raiders",
+        mia: "miami dolphins",
+        min: "minnesota vikings",
+        ne: "new england patriots",
+        no: "new orleans saints",
+        nyg: "new york giants",
+        nyj: "new york jets",
+        phi: "philadelphia eagles",
+        pit: "pittsburgh steelers",
+        sea: "seattle seahawks",
+        sf: "san francisco 49ers",
+        tb: "tampa bay buccaneers",
+        ten: "tennessee titans",
+        was: "washington commanders"
+      };
+
+      const expectedOpponent = teamNames[opponent];
+      const expectedTeam = teamNames[
+        String(projection.team || "").toLowerCase()
+      ];
+
+      const gameTeams = game.split(" @ ").map(s => s.trim());
+
+      if (
+        !expectedOpponent ||
+        !expectedTeam ||
+        gameTeams.length !== 2 ||
+        !gameTeams.includes(expectedOpponent) ||
+        !gameTeams.includes(expectedTeam)
+      ) {
+        unmatched++;
+        continue;
+      }
+
       const simulation = engine.simulateOver(
         projection, offer.line, 50000
       );
