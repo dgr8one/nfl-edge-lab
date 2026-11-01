@@ -82,7 +82,32 @@ function extract(board,event){const out=[];for(const b of board.bookmakers||[])f
 function dedup(xs){const m=new Map();for(const q of xs){const k=[id(q),q.book,q.alt,q.side,q.line].join('|');const old=m.get(k);if(!old||String(q.updated||'')>String(old.updated||''))m.set(k,q)}return [...m.values()]}
 function pairsOf(xs){const out=[];for(const a of group(xs,q=>[id(q),q.book,q.line,q.alt].join('|')).values()){const over=a.find(q=>q.side==='Over'),under=a.find(q=>q.side==='Under');if(!over||!under)continue;const p=implied(over.price)/(implied(over.price)+implied(under.price));out.push({market:id(over),book:over.book,line:over.line,p,alt:over.alt,over,under})}return out}
 function refAt(q,book,pairs){const points=pairs.filter(x=>x.market===id(q)&&x.book===book).sort((a,b)=>a.line-b.line||Number(a.alt)-Number(b.alt));const exact=points.find(x=>x.line===q.line);if(exact)return {book,p:exact.p,method:'exact',lines:[exact.line],over:exact.over.price,under:exact.under.price};const left=points.filter(x=>x.line<q.line).at(-1),right=points.find(x=>x.line>q.line);if(!left||!right||right.line-left.line>25||left.p<right.p||left.p<=0||right.p>=1)return null;const logit=p=>Math.log(p/(1-p)),sigmoid=x=>1/(1+Math.exp(-x));const t=(q.line-left.line)/(right.line-left.line);return {book,p:sigmoid(logit(left.p)*(1-t)+logit(right.p)*t),method:'interpolated',lines:[left.line,right.line]}}
-function baselineOf(xs,pairs){const main=new Map();for(const a of group(xs.filter(q=>!q.alt),q=>id(q)+'|'+q.book).values()){const over=a.filter(q=>q.side==='Over');if(!over.length)continue;const samePairs=pairs.filter(p=>p.market===id(over[0])&&p.book===over[0].book&&!p.alt);let best;if(samePairs.length){best=[...samePairs].sort((x,y)=>Math.abs(x.p-.5)-Math.abs(y.p-.5))[0].line}else{const os=over.map(x=>x.line).sort((a,b)=>a-b);best=os[Math.floor((os.length-1)/2)]}main.set(id(over[0])+'|'+over[0].book,best)}const consensus=new Map();for(const a of group([...main].map(([k,line])=>({market:k.slice(0,k.lastIndexOf('|')),line})),x=>x.market).values()){const ls=a.map(x=>x.line).sort((a,b)=>a-b);consensus.set(a[0].market,ls[Math.floor((ls.length-1)/2)])}return {main,consensus}}
+function pinnacleAt(q, pairs) {
+  const result = refAt(q, 'pinnacle', pairs);
+
+  if (!result) {
+    return null;
+  }
+
+  return {
+    probability: result.p,
+    method: result.method,
+    referenceLines: result.lines,
+    overOdds: result.over ?? null,
+    underOdds: result.under ?? null
+  };
+}
+
+function sharpROI(probability, americanOdds) {
+  if (probability == null) return null;
+
+  const decimalOdds = americanOdds > 0
+    ? 1 + americanOdds / 100
+    : 1 + 100 / Math.abs(americanOdds);
+
+  return probability * decimalOdds - 1;
+}
+  function baselineOf(xs,pairs){const main=new Map();for(const a of group(xs.filter(q=>!q.alt),q=>id(q)+'|'+q.book).values()){const over=a.filter(q=>q.side==='Over');if(!over.length)continue;const samePairs=pairs.filter(p=>p.market===id(over[0])&&p.book===over[0].book&&!p.alt);let best;if(samePairs.length){best=[...samePairs].sort((x,y)=>Math.abs(x.p-.5)-Math.abs(y.p-.5))[0].line}else{const os=over.map(x=>x.line).sort((a,b)=>a-b);best=os[Math.floor((os.length-1)/2)]}main.set(id(over[0])+'|'+over[0].book,best)}const consensus=new Map();for(const a of group([...main].map(([k,line])=>({market:k.slice(0,k.lastIndexOf('|')),line})),x=>x.market).values()){const ls=a.map(x=>x.line).sort((a,b)=>a-b);consensus.set(a[0].market,ls[Math.floor((ls.length-1)/2)])}return {main,consensus}}
 function evaluate(boards){const all=dedup(boards.flatMap(({event,board})=>extract(board,event)));const pairs=pairsOf(all),{main,consensus}=baselineOf(all,pairs);
 const books={};for(const q of all)books[q.book]=(books[q.book]||0)+1;
 const pairCounts={};for(const p of pairs)pairCounts[p.book]=(pairCounts[p.book]||0)+1;
