@@ -2,125 +2,121 @@
 (function () {
   "use strict";
 
+  const normalize = x => ({
+    LA: "LAR",
+    JAX: "JAC",
+    WSH: "WAS"
+  }[String(x || "").toUpperCase()] ||
+    String(x || "").toUpperCase());
+
   function buildCombinedProjections(records, schedule) {
-    const usage = window.NFLEdgeUsage.buildUsage(records);
+    const clean = [];
+    const seen = new Set();
 
-    const ratings =
-      window.NFLEdgeMatchups.buildDefenseRatings(records);
+    for (const r of records || []) {
+      if (
+        Number(r.season) !== 2026 ||
+        String(r.season_type || "").toUpperCase() !== "REG" ||
+        !r.player_id
+      ) continue;
 
-    const games =
-      window.NFLEdgeUpcoming.upcomingGames(schedule);
+      const week = Number(r.week);
 
-    // Index weekly player statistics by player ID.
-    const historyByPlayer = new Map();
+      if (!Number.isInteger(week) || week < 1) continue;
 
-    for (const record of records) {
-      if (String(record.season_type).toUpperCase() !== "REG") {
-        continue;
-      }
+      const key = String(r.player_id) + "|" + week;
 
-      if (Number(record.season) !== 2026) continue;
-
-      const id = String(record.player_id || "");
-      if (!id) continue;
-
-      if (!historyByPlayer.has(id)) {
-        historyByPlayer.set(id, []);
-      }
-
-      historyByPlayer.get(id).push(record);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push(r);
     }
 
-    // Ensure historical games are in chronological order.
-    for (const history of historyByPlayer.values()) {
-      history.sort((a, b) =>
-        Number(a.week) - Number(b.week)
+    const usage = window.NFLEdgeUsage.buildUsage(clean);
+
+    const ratings =
+      window.NFLEdgeMatchups.buildDefenseRatings(clean);
+
+    const upcoming =
+      window.NFLEdgeUpcoming.upcomingGames(schedule);
+
+    const history = new Map();
+
+    for (const r of clean) {
+      const id = String(r.player_id);
+
+      if (!history.has(id)) history.set(id, []);
+      history.get(id).push(r);
+    }
+
+    for (const rows of history.values()) {
+      rows.sort(
+        (a, b) => Number(a.week) - Number(b.week)
       );
     }
 
     const output = [];
 
-    const aliases = {
-      LA: "LAR",
-      JAX: "JAC",
-      WSH: "WAS"
-    };
-
-    const normalize = code =>
-      aliases[String(code || "").toUpperCase()] ||
-      String(code || "").toUpperCase();
-
-    for (const player of usage) {
+    for (const p of usage) {
       const game =
         window.NFLEdgeUpcoming.nextGameForTeam(
-          player.team, games
+          p.team, upcoming
         );
 
       if (!game) continue;
 
-      const team = normalize(player.team);
+      const team = normalize(p.team);
       const home = normalize(game.home_team);
       const away = normalize(game.away_team);
 
-      // Do not assign a matchup to the wrong team.
       if (team !== home && team !== away) continue;
 
-      const opponent = team === home
-        ? game.away_team
-        : game.home_team;
+      const opponent = team === home ? away : home;
 
-      const history =
-        historyByPlayer.get(String(player.player_id)) || [];
+      const match = String(game.game_id || "")
+        .match(/^2026_(\d{1,2})(?:_|$)/);
 
-      // Only games preceding the projected matchup.
-      const currentWeek = Number(
-        String(game.game_id || "").split("_")[1]
-      );
+      const currentWeek = match
+        ? Number(match[1])
+        : null;
 
-      const priorHistory = history.filter(record =>
-        !Number.isFinite(currentWeek) ||
-        Number(record.week) < currentWeek
+      const rows = (
+        history.get(String(p.player_id)) || []
+      ).filter(r =>
+        currentWeek === null ||
+        Number(r.week) < currentWeek
       );
 
       for (const market of ["rushing", "receiving"]) {
-        const projectedYards =
-          market === "rushing"
-            ? player.projected_rushing_yards
-            : player.projected_receiving_yards;
+        const projected = market === "rushing"
+          ? p.projected_rushing_yards
+          : p.projected_receiving_yards;
 
-        const projectedUsage =
-          market === "rushing"
-            ? player.projected_carries
-            : player.projected_targets;
+        const opportunities = market === "rushing"
+          ? p.projected_carries
+          : p.projected_targets;
 
-        if (market === "rushing" && projectedUsage < 5) {
-          continue;
-        }
-
-        if (market === "receiving" && projectedUsage < 3) {
-          continue;
-        }
-
-        if (!Number.isFinite(projectedYards) ||
-            projectedYards <= 0) {
-          continue;
-        }
+        if (
+          opportunities < (market === "rushing" ? 5 : 3) ||
+          !Number.isFinite(projected) ||
+          projected <= 0
+        ) continue;
 
         const field = market === "rushing"
           ? "rushing_yards"
           : "receiving_yards";
 
-        // Include zero-yard games, not just productive games.
-        const weeklyYards = priorHistory
-          .map(record => Number(record[field]))
-          .filter(value => Number.isFinite(value));
+        const weekly = rows
+          .map(r => Number(r[field]))
+          .filter(v => Number.isFinite(v) && v >= 0);
+
+        if (weekly.length < 3) continue;
 
         const projection = {
-          ...player,
+          ...p,
           market,
-          projected_yards: projectedYards,
-          projected_usage: projectedUsage,
-          weekly_yards: weeklyYards
+          projected_yards: projected,
+          projected_usage: opportunities,
+          weekly_yards: weekly
         };
 
         const adjusted =
@@ -130,9 +126,9 @@
 
         output.push({
           ...adjusted,
-          weekly_yards: weeklyYards,
           kickoff: game.kickoff,
-          game_id: game.game_id
+          game_id: game.game_id,
+          history_games: weekly.length
         });
       }
     }
@@ -142,6 +138,6 @@
 
   window.NFLEdgeCombined = {
     buildCombinedProjections,
-    version: "1.1"
+    version: "2.0"
   };
 })();
