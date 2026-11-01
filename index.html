@@ -104,7 +104,7 @@ function modeledRefAt(q,book,pairs,all){
   const observed=implied(x.price);
   const corrected=Math.max(.015,Math.min(.985,observed-margin));
   const slope=(logit(corrected)-logit(main.p))/distance;
-  if(slope<-.20&&slope>-.005)slopes.push({slope,line:x.line});
+  if(slope>-.20&&slope<-.005)slopes.push({slope,line:x.line});
  }
  if(slopes.length<2)return null;
  slopes.sort((a,b)=>a.slope-b.slope);
