@@ -11,7 +11,54 @@
 <div class="actions"><span class="tiny" id="shown">No data yet</span></div><div class="tablewrap"><table><thead><tr><th>Player / matchup</th><th>Over market</th><th>Best soft-book offer</th><th>FanDuel / DraftKings</th><th>Reference evidence</th><th>Price advantage</th><th>Estimated ROI</th></tr></thead><tbody id="rows"><tr><td colspan="7" class="empty">Load odds or import a saved JSON file.</td></tr></tbody></table></div>
 <section class="panel help"><h2>How to interpret these results</h2><p><span class="pill green">TWO-BOOK FAIR</span> Both FD and DK have paired Over/Under reference prices (exact or tightly interpolated). No-vig probabilities are averaged, and an estimated ROI is calculated. This is a <b>market estimate, not a guaranteed edge</b>.</p><p><span class="pill amber">PRICE ONLY</span> FD/DK Over prices are available but fair probability cannot be established. A favorable price gap is a <b>shopping opportunity</b>; no EV or fair probability is invented. A 2-point price gap does not imply +2% expected value.</p><p><span class="pill gray">NO REFERENCE</span> Missing comparable prices or an unsupported threshold. Not ranked as a value opportunity.</p><p>Line-to-line interpolation is allowed only <b>between</b> two paired reference thresholds from the same sportsbook, separated by at most 25 yards, with monotonic probabilities. No extrapolation or arbitrary probability discounts. For one-sided alternate Overs, the displayed raw implied probabilities include bookmaker margin. No bets are placed.</p></section>
 <section class="panel"><h2>Activity log</h2><pre id="log">Ready. Use offline tests before scanning.</pre></section>
+
+<section class="panel">
+  <h2>2026 NFL Player Statistics</h2>
+  <p id="nflDataStatus" class="muted">
+    Loading player statistics...
+  </p>
+</section>
 </main><script>
+async function loadNFLPlayerData() {
+  const status = document.getElementById("nflDataStatus");
+
+  try {
+    const response = await fetch(
+      "./data/player_stats.json",
+      { cache: "no-store" }
+    );
+
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data.players) || !data.players.length) {
+      throw new Error("No player records found");
+    }
+
+    window.nflPlayerData = data.players;
+
+    const names = new Set(
+      data.players.map(p => p.player_id)
+    );
+
+    status.textContent =
+      "Connected successfully: " +
+      names.size + " players, " +
+      data.players.length + " weekly records. " +
+      "Last updated: " +
+      new Date(data.updated_at).toLocaleString();
+
+  } catch (error) {
+    status.textContent =
+      "NFL statistics connection failed: " + error.message;
+  }
+}
+
+loadNFLPlayerData();
+
  'use strict';
 const API='https://api.the-odds-api.com/v4/sports/americanfootball_nfl';
 const MARKETS=['player_reception_yds','player_rush_yds','player_reception_yds_alternate','player_rush_yds_alternate'];
