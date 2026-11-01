@@ -575,4 +575,93 @@ $('date').value=dateLocal(new Date());$('load').onclick=loadGames;$('scan').oncl
   }
 })();
 </script>
+
+<script src="./js/nfl-combined.js"></script>
+<script>
+(async function () {
+  const panel = document.createElement("section");
+  panel.className = "panel";
+
+  panel.innerHTML = `
+    <h2>NFL Combined Projections — Test</h2>
+    <p id="combinedStatus">Calculating...</p>
+    <div id="combinedResults"></div>
+  `;
+
+  const main = document.querySelector("main");
+  if (!main) return;
+  main.appendChild(panel);
+
+  try {
+    const [statsResponse, scheduleResponse] = await Promise.all([
+      fetch("./data/player_stats.json", { cache: "no-store" }),
+      fetch("./data/nfl_schedule.json", { cache: "no-store" })
+    ]);
+
+    if (!statsResponse.ok || !scheduleResponse.ok) {
+      throw new Error("Unable to load NFL data");
+    }
+
+    const stats = await statsResponse.json();
+    const schedule = await scheduleResponse.json();
+
+    const projections =
+      window.NFLEdgeCombined.buildCombinedProjections(
+        stats.players, schedule
+      );
+
+    const eligible = projections
+      .filter(p => p.matchup_available)
+      .sort((a, b) => b.adjusted_yards - a.adjusted_yards);
+
+    document.getElementById("combinedStatus").textContent =
+      eligible.length + " matchup-adjusted player markets.";
+
+    const table = document.createElement("table");
+
+    const columns = [
+      ["Player", p => p.player_name],
+      ["Team", p => p.team],
+      ["Opponent", p => p.opponent],
+      ["Market", p => p.market],
+      ["Usage", p => p.projected_usage.toFixed(1)],
+      ["Base Yds", p => p.projected_yards.toFixed(1)],
+      ["Adjusted Yds", p => p.adjusted_yards.toFixed(1)]
+    ];
+
+    const header = document.createElement("tr");
+
+    for (const [name] of columns) {
+      const th = document.createElement("th");
+      th.textContent = name;
+      header.appendChild(th);
+    }
+
+    table.appendChild(header);
+
+    for (const player of eligible.slice(0, 20)) {
+      const row = document.createElement("tr");
+
+      for (const [, getValue] of columns) {
+        const td = document.createElement("td");
+        td.textContent = getValue(player);
+        row.appendChild(td);
+      }
+
+      table.appendChild(row);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.overflowX = "auto";
+    wrapper.appendChild(table);
+
+    document.getElementById("combinedResults").appendChild(wrapper);
+
+  } catch (error) {
+    document.getElementById("combinedStatus").textContent =
+      "Combined projection error: " + error.message;
+    console.error(error);
+  }
+})();
+</script>
 </body></html>
