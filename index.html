@@ -64,7 +64,7 @@ loadNFLPlayerData();
  'use strict';
 const API='https://api.the-odds-api.com/v4/sports/americanfootball_nfl';
 const MARKETS=['player_reception_yds','player_rush_yds','player_reception_yds_alternate','player_rush_yds_alternate'];
-const REF=['fanduel','draftkings'];
+const REF=['fanduel','draftkings','pinnacle'];
 const $=id=>document.getElementById(id);
 let games=[],rawBoards=[],offers=[],report={},activeRows=[],busy=false;
 const norm=s=>String(s||'').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g,'');
